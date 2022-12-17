@@ -11,21 +11,40 @@
 }
 @end
 
+@interface ZTWkProcessPool : WKProcessPool
++ (instancetype)singleWkProcessPool;
+@end
+
+@implementation ZTWkProcessPool
++ (instancetype)singleWkProcessPool{
+    static ZTWkProcessPool *staticInstance;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        staticInstance = [[self alloc] init];
+    });
+    return staticInstance;
+}
+@end
+
+
 @implementation FWFWebView
 - (instancetype)initWithFrame:(CGRect)frame
                 configuration:(nonnull WKWebViewConfiguration *)configuration
               binaryMessenger:(id<FlutterBinaryMessenger>)binaryMessenger
               instanceManager:(FWFInstanceManager *)instanceManager {
+  configuration.processPool = [ZTWkProcessPool singleWkProcessPool];
   self = [self initWithFrame:frame configuration:configuration];
   if (self) {
     _objectApi = [[FWFObjectFlutterApiImpl alloc] initWithBinaryMessenger:binaryMessenger
                                                           instanceManager:instanceManager];
     if (@available(iOS 11.0, *)) {
+      self.allowsLinkPreview = NO; // disable allowsLinkPreview
       self.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
       if (@available(iOS 13.0, *)) {
         self.scrollView.automaticallyAdjustsScrollIndicatorInsets = NO;
       }
     }
+    self.scrollView.bounces = NO;
   }
   return self;
 }
@@ -35,6 +54,33 @@
   // Prevents the contentInsets from being adjusted by iOS and gives control to Flutter.
   self.scrollView.contentInset = UIEdgeInsetsZero;
   if (@available(iOS 11, *)) {
+    // --- Start disable drag & drop link ---
+    UIView *webScrollView = nil;
+    for (UIView *subview in self.subviews) {
+      if ([subview isKindOfClass:[UIScrollView class]]) {
+        webScrollView = subview;
+        break;
+      }
+    }
+    if (webScrollView) {
+      UIView *contentView = nil;
+      for (UIView *subview in webScrollView.subviews) {
+        if ([subview.interactions count] > 1) {
+          contentView = subview;
+          break;
+        }
+      }
+      if (contentView) {
+        for (id<UIInteraction> interaction in contentView.interactions) {
+          if ([interaction isKindOfClass:[UIDragInteraction class]]) {
+            ((UIDragInteraction *) interaction).enabled = NO;
+            break;
+          }
+        }
+      }
+    }
+    // --- End disable drag & drop link in WKWebView ---
+
     // Above iOS 11, adjust contentInset to compensate the adjustedContentInset so the sum will
     // always be 0.
     if (UIEdgeInsetsEqualToEdgeInsets(self.scrollView.adjustedContentInset, UIEdgeInsetsZero)) {
